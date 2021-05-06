@@ -1,0 +1,242 @@
+---
+title: "Topic Modelling"
+author: "Chetna Bhardwaj"
+date: "2/24/2021"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(textir) # to get the data
+library(maptpx) # for the topics function
+library(factoextra) # for visualizing clusters
+library(wordcloud) # wordless 
+library(gamlr)
+```
+
+
+## Part 1  
+
+
+Fit K-means to the speech text of the members, comprising of the 1000 phrases, for K in 5, 10, 15, 20, 25.  
+
+```{r Q1}
+# Load the data 
+load("congress.RData")
+
+# Scaling the data
+fs_congress <- scale(as.matrix(congress109Counts/rowSums(congress109Counts)))
+
+# Sequence of K
+k_seq <- seq(5, 25, by = 5)
+
+# Computing the k-means 
+kmfs_congress <- lapply(k_seq, function(x){kmeans(fs_congress,x)})
+```
+
+## Part 2 & 3 
+
+
+Use AICc and BIC to choose the K. Also use the elbow curve method to identify the most optimal value of K based on AICc and BIC.  
+
+
+Compare the optimal values of K that you obtained and explain their similarity / differences.  
+
+
+```{r Q2}
+# Utility script for AICc and BIC 
+source("kic.R") 
+
+# Compute the AICc and BIC values
+kaicc <- sapply(kmfs_congress, kic)
+kbic <- sapply(kmfs_congress, kic, "B")
+
+# Plot the AICc and BIC values 
+plot(k_seq, kaicc, xlab="K", ylab="IC",
+	ylim=range(c(kaicc,kbic)),
+	xlim = c(0,25),
+	bty="n", type="l", lwd=2)
+abline(v=which.min(kaicc)) # Black AICc
+lines(k_seq, kbic, col=4, lwd=2)
+abline(v=which.min(kbic),col=4) # Blue BIC
+
+# Elbow Rule
+deviance_congress <- lapply(k_seq, function(x){kmeans(fs_congress,x)$tot.withinss})
+plot(k_seq, deviance_congress, xlab = "K", ylab = "Deviance")
+lines(k_seq, deviance_congress, lwd=2)
+```
+**Interpretation:**
+The BIC plot yields the best value of k as 5 (at 5 minimum BIC is observed).    
+The AICC plot yields the best value of k as 25 (at 5 minimum AICc is observed).  
+The elbow plot does not show a clear elbow however it is observed that as k increases, the deviance is continuously decreasing with the minimum value of deviance at k=25.   
+
+Thus, taking both AICc and elbow curve into consideration, I am selecting an optimal value of k as 25. Also, for any actionable insights to be drawn from speaker' speeches 25 would give a detailed output, 5 would then only give a high level view then.  
+
+
+## Part 4  
+
+
+Based on the optimal K returned model, plot the clusters. Use fviz_cluster to do so.  
+
+
+```{r Q4}
+# Determine the clusters based on k=25 
+congress_k25 <- kmeans(fs_congress, centers = 25, nstart = 25)
+
+# Plotting the clusters 
+fviz_cluster(congress_k25, geom = "point",  data = fs_congress) + ggtitle("k = 25")
+```
+
+
+## Part 5  
+
+
+Based on the returned model, interpret the most significant words within that cluster.  
+
+
+```{r Q5}
+print(apply(congress_k25$centers,1,function(c) colnames(fs_congress)[order(-c)[1:10]]))
+```
+**Interpretation:**  
+The most significant words in each of the clusters:  
+Cluster 1: Asia Pacific American Heritage  
+Cluster 2: Hate Crimes  
+Cluster 3: Social Schemes  
+Cluster 4: Natural Gas  
+Cluster 5: Civil Rights Movement  
+Cluster 6: Constitution  
+Cluster 7: Social Schemes  
+Cluster 8: Wildlife  
+Cluster 9: Trade  
+Cluster 10: Gun Violence  
+Cluster 11: Healthcare  
+Cluster 12: Immigration  
+Cluster 13: Troop Deployment  
+Cluster 14: Social Security  
+Cluster 15: Abortion Rights  
+Cluster 16: Oil & Food Program   
+Cluster 19: Judiciary  
+Cluster 21: Stem Cell Research  
+Cluster 22: Veterans  
+Cluster 23: Middle Class Tax   
+Cluster 24: Manufacturing Jobs  
+Cluster 25: International Trade  
+
+
+Among the clusters, 17, 18 and 20 do not have any significant words and include a mixed bunch of topics.  
+
+
+
+## Part 6  
+
+
+Fit a topic model for the speech counts. Use Bayes factors to choose the number of topics and
+interpret your chosen model.    
+
+
+```{r Q6}
+# Topic Model
+
+# Matrix of multinomial response counts
+x <- as.simple_triplet_matrix(congress109Counts)
+
+# Using Bayes factor to choose the number of topics
+tpcs <- topics(x, K=2:20, tol=10)
+
+# Displays the top `10' words for each topic
+print("Display the top 10 topics: ")
+summary(tpcs, n=10) 
+
+# Rank terms by probability within topics
+(rownames(tpcs$theta)[order(tpcs$theta[,1], decreasing=TRUE)[1:10]])
+(rownames(tpcs$theta)[order(tpcs$theta[,2], decreasing=TRUE)[1:10]])
+
+# Partisan within topics
+Dem0 <- colMeans(tpcs$omega[congress109Ideology$party == "D",])
+Rep0 <- colMeans(tpcs$omega[congress109Ideology$party == "R",])
+sort(Dem0/Rep0)
+
+# Generate Word Cloud
+wordcloud(row.names(tpcs$theta), 
+          freq=tpcs$theta[,1], min.freq=0.004, col="maroon")
+wordcloud(row.names(tpcs$theta), 
+          freq=tpcs$theta[,2], min.freq=0.004, col="navy")
+```
+
+**Interpretation:**  
+Using Bayes factors the optimal number of topics obtained is 11. The maximum value of log(-BIC) is obtained at 11 and as we can see the model stops at 13 after dropping twice. We had initially given the range of k from 2 to 20.  
+
+
+On ordering by "topic over aggregate" lift, we can observe that the first two topics with maximum usage percentage are related to the National Heritage and Extraterritorial phrases.   
+
+
+On ordering by in-topic probability we can see that the first topic are related to Iraq war and the second is related to Civil Rights. Going by the partisan we can see that 4, 1, 6, 11 are Republican and 10, 8, 2, 9, 3 are Democrats.  
+Only 7 is <1 and >0.5, indicating that it is a non-partisan group.      
+
+
+
+## Part 7  
+
+
+Connect the unsupervised clusters to partisanship. Tabulate party membership by K-means
+cluster. Are there any non-partisan topics?   
+
+
+```{r Q7}
+# Tabulate party membership
+table(party = congress109Ideology$party, cluster = congress_k25$cluster)
+
+# Display the clusters that look like non-partisan
+colnames(fs_congress)[order(-congress_k25$centers[9,])[1:10]]
+colnames(fs_congress)[order(-congress_k25$centers[23,])[1:10]]
+```
+
+
+**Interpretation:**  
+Non-partisan topics do exist in the cluster of 25. We can see that cluster 9 and 23 have the same number of membership from both Democrats and Republicans. Cluster 9 was primarily centered around trade and cluster 23 around taxes for middle class. Also in the clusters of 2, 8, 10, 15, 22 any part does not have a clear overwhelming majority. 
+
+
+
+## Part 8  
+
+
+Fit Principal Component Analysis model to congress counts data. Use prcomp to do so.   
+
+```{r Q8}
+# Principle Component Analysis
+pca_congress <- prcomp(congress109Counts)
+
+# Display the importance of components
+summary(pca_congress)
+```
+
+## Part 9  
+
+
+Create a graph that summarizes the percentage of the variance explained by the first 10 principle components of the PCA where the x-axis represents the component and the y-axis is the proportion of explained variances. This is called a scree plot. Use fviz_eig to do so.    
+
+
+```{r Q9}
+# Scree plot - Variance
+fviz_eig(pca_congress, addlabels = TRUE)
+```
+
+## Part 10  
+
+
+Report the total proportion of explained variances of the 10 first principle components. If we were to eliminate all other components (everything but the first 10), how many dimensions would we eliminate and how much variance would we lose? 
+
+
+```{r Q10}
+# Total of variance explained by first 10 components
+sum(get_eig(pca_congress)[, "variance.percent"][1:10])
+
+# Cross-verifying using the cumulative variance column
+get_eig(pca_congress)[, "cumulative.variance.percent"][10]
+```
+
+**Interpretation:**  
+The Principal Component Analysis reduces the variables from 1000 to 529 dimensions. If we keep only the first 10 components, we would lose 519 dimensions.  
+The first 10 components explain about 70.63% variance and hence if we drop the rest of them we would lose about 30% of the variance. 
